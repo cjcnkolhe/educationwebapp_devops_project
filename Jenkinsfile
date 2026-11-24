@@ -16,6 +16,7 @@ pipeline {
 
     stages {
 
+        // 1. Download source code from GitHub
         stage('Git Checkout') {
             steps {
                 git branch: 'master',
@@ -23,12 +24,14 @@ pipeline {
             }
         }
 
+        // 2. Build Java application
         stage('Maven Build') {
             steps {
                 sh 'mvn clean package'
             }
         }
 
+        // 3. SonarQube code analysis
         stage('SonarQube Analysis') {
             steps {
                 withCredentials([
@@ -48,6 +51,7 @@ pipeline {
             }
         }
 
+        // 4. Create Docker image
         stage('Docker Build') {
             steps {
                 sh '''
@@ -56,6 +60,7 @@ pipeline {
             }
         }
 
+        // 5. Login to Docker Hub and push image
         stage('Docker Login & Push') {
             steps {
                 withCredentials([
@@ -67,18 +72,17 @@ pipeline {
                 ]) {
                     sh '''
                         set +x
-
                         echo "$DOCKER_PASS" | docker login \
                         -u "$DOCKER_USER" --password-stdin
 
                         docker push $DOCKER_IMAGE:latest
-
                         docker logout
                     '''
                 }
             }
         }
 
+        // 6. Download image from Docker Hub
         stage('Docker Pull') {
             steps {
                 sh '''
@@ -87,21 +91,22 @@ pipeline {
             }
         }
 
-       stage('Docker Run / Deploy') {
-    steps {
-        sh '''
-            docker rm -f educationapp || true
+        // 7. Deploy application using Docker
+        stage('Docker Run / Deploy') {
+            steps {
+                sh '''
+                    docker rm -f $CONTAINER_NAME || true
 
-            docker run -d \
-            --name educationapp \
-            --restart unless-stopped \
-            -p 8081:8080 \
-            nanducjc123/educationrepo:latest
+                    docker run -d \
+                    --name $CONTAINER_NAME \
+                    --restart unless-stopped \
+                    -p 8081:$APP_PORT \
+                    $DOCKER_IMAGE:latest
 
-            docker ps
-        '''
-    }
-}
+                    docker ps
+                '''
+            }
+        }
     }
 
     post {
