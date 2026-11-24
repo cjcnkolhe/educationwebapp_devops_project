@@ -13,8 +13,8 @@ pipeline {
 
         SONAR_HOST = 'http://35.154.110.139:9000'
 
-        AWS_REGION = 'YOUR_AWS_REGION'
-        EKS_CLUSTER_NAME = 'YOUR_EKS_CLUSTER_NAME'
+        AWS_REGION = 'ap-south-1'
+        EKS_CLUSTER_NAME = 'java-eks-cluster'
 
         K8S_NAMESPACE = 'education'
     }
@@ -67,7 +67,7 @@ pipeline {
             }
         }
 
-        // 5. Docker Hub Login and Push
+        // 5. Docker Hub Login & Push
         stage('Docker Login & Push') {
             steps {
                 withCredentials([
@@ -94,11 +94,16 @@ pipeline {
         stage('EKS Connect') {
             steps {
                 sh '''
+                    echo "Connecting to Amazon EKS..."
+
+                    aws sts get-caller-identity
+
                     aws eks update-kubeconfig \
                     --region $AWS_REGION \
                     --name $EKS_CLUSTER_NAME
 
                     kubectl cluster-info
+
                     kubectl get nodes
                 '''
             }
@@ -108,7 +113,11 @@ pipeline {
         stage('Create Namespace') {
             steps {
                 sh '''
+                    echo "Creating education namespace..."
+
                     kubectl apply -f namespace.yaml
+
+                    kubectl get namespaces
                 '''
             }
         }
@@ -117,8 +126,9 @@ pipeline {
         stage('EKS Deployment') {
             steps {
                 sh '''
-                    kubectl apply -f deployment.yaml \
-                    -n $K8S_NAMESPACE
+                    echo "Deploying EducationApp..."
+
+                    kubectl apply -f deployment.yaml
 
                     kubectl set image deployment/educationapp \
                     educationapp=$DOCKER_IMAGE:$IMAGE_TAG \
@@ -131,20 +141,20 @@ pipeline {
             }
         }
 
-        // 9. Create LoadBalancer Service
+        // 9. Create AWS LoadBalancer Service
         stage('EKS Service') {
             steps {
                 sh '''
-                    kubectl apply -f service.yaml \
-                    -n $K8S_NAMESPACE
+                    echo "Creating LoadBalancer service..."
 
-                    kubectl get services \
-                    -n $K8S_NAMESPACE
+                    kubectl apply -f service.yaml
+
+                    kubectl get svc -n $K8S_NAMESPACE
                 '''
             }
         }
 
-        // 10. Verify Deployment
+        // 10. Verify EKS Deployment
         stage('Verify EKS Deployment') {
             steps {
                 sh '''
@@ -160,6 +170,14 @@ pipeline {
                     echo "Checking Application Rollout..."
                     kubectl rollout status deployment/educationapp \
                     -n $K8S_NAMESPACE
+
+                    echo "Getting LoadBalancer DNS..."
+
+                    kubectl get svc education-service \
+                    -n $K8S_NAMESPACE \
+                    -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+
+                    echo ""
                 '''
             }
         }
