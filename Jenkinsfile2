@@ -1,0 +1,182 @@
+
+pipeline {
+    agent any
+
+    tools {
+        maven 'Maven'
+        jdk 'JDK17'
+    }
+
+    environment {
+        DOCKER_IMAGE = 'nanducjc123/educationrepo'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+
+        SONAR_HOST = 'http://35.154.110.139:9000'
+
+        AWS_REGION = 'YOUR_AWS_REGION'
+        EKS_CLUSTER_NAME = 'YOUR_EKS_CLUSTER_NAME'
+
+        K8S_NAMESPACE = 'education'
+    }
+
+    stages {
+
+        // 1. Git Checkout
+        stage('Git Checkout') {
+            steps {
+                git branch: 'master',
+                    url: 'https://github.com/cjcnkolhe/educationwebapp_devops_project.git'
+            }
+        }
+
+        // 2. Maven Build
+        stage('Maven Build') {
+            steps {
+                sh 'mvn clean package'
+            }
+        }
+
+        // 3. SonarQube Analysis
+        stage('SonarQube Analysis') {
+            steps {
+                withCredentials([
+                    string(
+                        credentialsId: 'sonar-token',
+                        variable: 'SONAR_TOKEN'
+                    )
+                ]) {
+                    sh '''
+                        mvn org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar \
+                        -Dsonar.projectKey=my-project \
+                        -Dsonar.projectName=my-project \
+                        -Dsonar.host.url=$SONAR_HOST \
+                        -Dsonar.token=$SONAR_TOKEN
+                    '''
+                }
+            }
+        }
+
+        // 4. Docker Build
+        stage('Docker Build') {
+            steps {
+                sh '''
+                    docker build \
+                    -t $DOCKER_IMAGE:$IMAGE_TAG \
+                    -t $DOCKER_IMAGE:latest .
+                '''
+            }
+        }
+
+        // 5. Docker Hub Login and Push
+        stage('Docker Login & Push') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )
+                ]) {
+                    sh '''
+                        echo "$DOCKER_PASS" | docker login \
+                        -u "$DOCKER_USER" --password-stdin
+
+                        docker push $DOCKER_IMAGE:$IMAGE_TAG
+                        docker push $DOCKER_IMAGE:latest
+
+                        docker logout
+                    '''
+                }
+            }
+        }
+
+        // 6. Connect to Amazon EKS
+        stage('EKS Connect') {
+            steps {
+                sh '''
+                    aws eks update-kubeconfig \
+                    --region $AWS_REGION \
+                    --name $EKS_CLUSTER_NAME
+
+                    kubectl cluster-info
+                    kubectl get nodes
+                '''
+            }
+        }
+
+        // 7. Create Kubernetes Namespace
+        stage('Create Namespace') {
+            steps {
+                sh '''
+                    kubectl apply -f namespace.yaml
+                '''
+            }
+        }
+
+        // 8. Deploy Application to EKS
+        stage('EKS Deployment') {
+            steps {
+                sh '''
+                    kubectl apply -f deployment.yaml \
+                    -n $K8S_NAMESPACE
+
+                    kubectl set image deployment/educationapp \
+                    educationapp=$DOCKER_IMAGE:$IMAGE_TAG \
+                    -n $K8S_NAMESPACE
+
+                    kubectl rollout status deployment/educationapp \
+                    -n $K8S_NAMESPACE \
+                    --timeout=300s
+                '''
+            }
+        }
+
+        // 9. Create LoadBalancer Service
+        stage('EKS Service') {
+            steps {
+                sh '''
+                    kubectl apply -f service.yaml \
+                    -n $K8S_NAMESPACE
+
+                    kubectl get services \
+                    -n $K8S_NAMESPACE
+                '''
+            }
+        }
+
+        // 10. Verify Deployment
+        stage('Verify EKS Deployment') {
+            steps {
+                sh '''
+                    echo "Checking Kubernetes Pods..."
+                    kubectl get pods -n $K8S_NAMESPACE
+
+                    echo "Checking Deployment..."
+                    kubectl get deployment -n $K8S_NAMESPACE
+
+                    echo "Checking Service..."
+                    kubectl get svc -n $K8S_NAMESPACE
+
+                    echo "Checking Application Rollout..."
+                    kubectl rollout status deployment/educationapp \
+                    -n $K8S_NAMESPACE
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'CI/CD Pipeline completed successfully!'
+            echo 'EducationApp deployed successfully on Amazon EKS!'
+        }
+
+        failure {
+            echo 'Pipeline failed! Check Console Output.'
+        }
+
+        always {
+            echo 'Jenkins pipeline execution finished.'
+        }
+    }
+}
