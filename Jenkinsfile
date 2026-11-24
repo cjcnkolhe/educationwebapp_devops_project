@@ -61,26 +61,26 @@ pipeline {
         }
 
         // 5. Login to Docker Hub and push image
-        stage('Docker Login & Push') {
-            steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'dockerhub-credentials',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )
-                ]) {
-                    sh '''
-                        set +x
-                        echo "$DOCKER_PASS" | docker login \
-                        -u "$DOCKER_USER" --password-stdin
+    stage('Docker Login & Push') {
+    steps {
+        withCredentials([
+            usernamePassword(
+                credentialsId: 'dockerhub-credentials',
+                usernameVariable: 'DOCKER_USER',
+                passwordVariable: 'DOCKER_PASS'
+            )
+        ]) {
+            sh '''
+                echo "$DOCKER_PASS" | docker login \
+                -u "$DOCKER_USER" --password-stdin
 
-                        docker push $DOCKER_IMAGE:latest
-                        docker logout
-                    '''
-                }
-            }
+                docker push nanducjc123/educationrepo:latest
+
+                docker logout
+            '''
         }
+    }
+}
 
         // 6. Download image from Docker Hub
         stage('Docker Pull') {
