@@ -17,11 +17,11 @@ pipeline {
         EKS_CLUSTER_NAME = 'java-eks-cluster'
 
         K8S_NAMESPACE = 'education'
+        K8S_DIR = 'k8s'
     }
 
     stages {
 
-        // 1. Git Checkout
         stage('Git Checkout') {
             steps {
                 git branch: 'master',
@@ -29,14 +29,29 @@ pipeline {
             }
         }
 
-        // 2. Maven Build
+        stage('Check Project Files') {
+            steps {
+                sh '''
+                    echo "Checking project files..."
+
+                    ls -la
+
+                    test -f Dockerfile
+                    test -f pom.xml
+
+                    test -f $K8S_DIR/namespace.yaml
+                    test -f $K8S_DIR/deployment.yaml
+                    test -f $K8S_DIR/service.yaml
+                '''
+            }
+        }
+
         stage('Maven Build') {
             steps {
                 sh 'mvn clean package'
             }
         }
 
-        // 3. SonarQube Analysis
         stage('SonarQube Analysis') {
             steps {
                 withCredentials([
@@ -56,7 +71,6 @@ pipeline {
             }
         }
 
-        // 4. Docker Build
         stage('Docker Build') {
             steps {
                 sh '''
@@ -67,7 +81,6 @@ pipeline {
             }
         }
 
-        // 5. Docker Hub Login & Push
         stage('Docker Login & Push') {
             steps {
                 withCredentials([
@@ -90,7 +103,6 @@ pipeline {
             }
         }
 
-        // 6. Connect to Amazon EKS
         stage('EKS Connect') {
             steps {
                 sh '''
@@ -105,30 +117,34 @@ pipeline {
                     kubectl cluster-info
 
                     kubectl get nodes
+
+                    echo "Checking node readiness..."
+
+                    kubectl wait --for=condition=Ready nodes \
+                    --all --timeout=300s
                 '''
             }
         }
 
-        // 7. Create Kubernetes Namespace
         stage('Create Namespace') {
             steps {
                 sh '''
                     echo "Creating education namespace..."
 
-                    kubectl apply -f namespace.yaml
+                    kubectl apply -f $K8S_DIR/namespace.yaml
 
                     kubectl get namespaces
                 '''
             }
         }
 
-        // 8. Deploy Application to EKS
         stage('EKS Deployment') {
             steps {
                 sh '''
                     echo "Deploying EducationApp..."
 
-                    kubectl apply -f deployment.yaml
+                    kubectl apply -f $K8S_DIR/deployment.yaml \
+                    -n $K8S_NAMESPACE
 
                     kubectl set image deployment/educationapp \
                     educationapp=$DOCKER_IMAGE:$IMAGE_TAG \
@@ -141,35 +157,39 @@ pipeline {
             }
         }
 
-        // 9. Create AWS LoadBalancer Service
         stage('EKS Service') {
             steps {
                 sh '''
                     echo "Creating LoadBalancer service..."
 
-                    kubectl apply -f service.yaml
+                    kubectl apply -f $K8S_DIR/service.yaml \
+                    -n $K8S_NAMESPACE
 
                     kubectl get svc -n $K8S_NAMESPACE
                 '''
             }
         }
 
-        // 10. Verify EKS Deployment
         stage('Verify EKS Deployment') {
             steps {
                 sh '''
                     echo "Checking Kubernetes Pods..."
-                    kubectl get pods -n $K8S_NAMESPACE
+
+                    kubectl get pods -n $K8S_NAMESPACE -o wide
 
                     echo "Checking Deployment..."
+
                     kubectl get deployment -n $K8S_NAMESPACE
 
                     echo "Checking Service..."
+
                     kubectl get svc -n $K8S_NAMESPACE
 
                     echo "Checking Application Rollout..."
+
                     kubectl rollout status deployment/educationapp \
-                    -n $K8S_NAMESPACE
+                    -n $K8S_NAMESPACE \
+                    --timeout=300s
 
                     echo "Getting LoadBalancer DNS..."
 
