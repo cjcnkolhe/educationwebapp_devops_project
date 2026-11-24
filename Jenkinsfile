@@ -19,7 +19,7 @@ pipeline {
         stage('Git Checkout') {
             steps {
                 git branch: 'master',
-                    url: 'https://github.com/cjcnkolhe/educationapp.git'
+                    url: 'https://github.com/cjcnkolhe/educationwebapp_devops_project.git'
             }
         }
 
