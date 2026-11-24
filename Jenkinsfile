@@ -9,7 +9,7 @@ pipeline {
 
     environment {
         DOCKER_IMAGE = 'nanducjc123/educationapprepo'
-        SONAR_HOST = 'http://13.50.232.101:9000'
+        SONAR_HOST = 'http://35.154.110.139:9000'
         CONTAINER_NAME = 'educationapp'
         APP_PORT = '8080'
     }
